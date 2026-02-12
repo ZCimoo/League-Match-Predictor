@@ -8,70 +8,83 @@ load_dotenv()
 
 api_key = os.getenv('RIOT_API_KEY')
 
-if not api_key:
-    raise ValueError("RIOT_API_KEY not found in environment variables")
-
 riot_watcher = RiotWatcher(api_key)
 lol_watcher = LolWatcher(api_key)
 
 my_region = 'americas'
-
-game_name = 'Bee'
-tag_line = '0928'
-
-try:
-    me = riot_watcher.account.by_riot_id(my_region, game_name, tag_line)
-    print(f"Success! Found PUUID: {me['puuid']}")
-
-except ApiError as err:
-    print(f"Failed to connect: {err}")
-
-print(f"Searching for matches in region {my_region}")
-
-queue_type=420
-count=5
+queue_type = 420
+count = 15
 
 try:
-    match_ids = lol_watcher.match.matchlist_by_puuid(region=my_region, 
-                                                      puuid=me['puuid'], 
-                                                      queue=queue_type, 
-                                                      count=count
-                                                      )
-    print(f"Successfully retrieved {len(match_ids)} match IDs.")
-    print(f"Example Match ID: {match_ids[0]}")
-except ApiError as err:
-    print(f"Failed to retrieve match IDs: {err}")
-
-print(f"Starting to scrape {len(match_ids)} matches...")
+    player_df = pd.read_csv('challenger_players.csv')
+    target_puuids = player_df['puuid'].tolist()
+    print(f"Loaded {len(target_puuids)} player PUUIDs from challenger_players.csv")
+except FileNotFoundError:
+    print("Error: challenger_players.csv not found. Please run get_players.py first.")
+    exit()
 
 match_data = []
+visited_match_ids = set()
 
-for match_id in match_ids:
-    try:
-        match_detail = lol_watcher.match.by_id(my_region, match_id)
-        participants = match_detail['info']['participants']
+print("Starting match scraping...")
 
-        row = {}
-        row['match_id'] = match_id
+try:
+    for i, puuid in enumerate(target_puuids):
+        print(f"Processing player {i+1}/{len(target_puuids)}: {puuid}")
+        try:
+            matches = lol_watcher.match.matchlist_by_puuid(my_region, 
+                                                           puuid, 
+                                                           queue=queue_type, 
+                                                           count=count)
+            
+            print(f"  Found {len(matches)} matches for player {puuid}")
+            for match_id in matches:
+                if match_id in visited_match_ids:
+                    continue
 
-        for i, player in enumerate(participants):
-            row[f'player_{i}_champ'] = player['championId']
-            row[f'player{i}_team'] = player['teamId']
-            row['blue_win'] = 1 if participants[0]['win'] else 0
-        
-        match_data.append(row)
-        print(f"Successfully scraped match ID: {match_id}")
+                try:
+                    match_details = lol_watcher.match.by_id(my_region, match_id)
+                    participants = match_details['info']['participants']
 
-        time.sleep(1.0)  # Sleep to respect rate limits
+                    row = {'match_id': match_id,}
 
-    except ApiError as err:
-        if err.response.status_code == 429:
-            print("Rate limit exceeded. Sleeping for 10 seconds...")
-            time.sleep(10)
-        else:
-            print(f"Failed to scrape match ID {match_id}: {err}")
+                    for p_index, player in enumerate(participants):
+                        row[f'player_{p_index}_champ'] = player['championId']
+                        row[f'player_{p_index}_team'] = player['teamId']
 
-df = pd.DataFrame(match_data)
-df.to_csv('league_data.csv', index=False)
+                    blue_win = False
+                    for player in participants:
+                        if player['teamId'] == 100 and player['win']:
+                            blue_win = True
+                            break
+                    row['blue_win'] = 1 if blue_win else 0
 
-print("Data scraping complete. Saved to league_data.csv")
+                    match_data.append(row)
+                    visited_match_ids.add(match_id)
+                    print(f"  Processed match {match_id} | Total matches collected: {len(match_data)}")
+
+                    time.sleep(1.2)
+
+                except ApiError as err:
+                    if err.response.status_code == 429:
+                        print("Rate limit hit. Sleeping for 10 seconds...")
+                        time.sleep(10)
+                    else:
+                        print(f"Error fetching match {match_id}: {err}")
+
+        except ApiError as err:
+            print(f"Error fetching matches for player {puuid}: {err}")
+
+except KeyboardInterrupt:
+    print("Scraping interrupted by user.")
+
+finally:
+    if len(match_data) > 0:
+        df = pd.DataFrame(match_data)
+        df.to_csv('match_data.csv', index=False)
+        print(f"Saved {len(match_data)} matches to match_data.csv")
+    else:
+        print("No match data collected.")
+           
+
+
