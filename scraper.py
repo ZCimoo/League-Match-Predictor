@@ -13,7 +13,7 @@ lol_watcher = LolWatcher(api_key)
 
 my_region = 'americas'
 queue_type = 420
-count = 15
+count = 80
 
 try:
     player_df = pd.read_csv('challenger_players.csv')
@@ -74,6 +74,11 @@ try:
 
         except ApiError as err:
             print(f"Error fetching matches for player {puuid}: {err}")
+        
+        if(i+1) % 5 == 0:
+            backup_df = pd.DataFrame(match_data)
+            backup_df.to_csv('match_data_backup.csv', index=False)
+            print(f"Saved backup after processing {i+1} players. Total matches collected: {len(match_data)}")
 
 except KeyboardInterrupt:
     print("Scraping interrupted by user.")

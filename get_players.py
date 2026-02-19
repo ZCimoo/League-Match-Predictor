@@ -20,13 +20,13 @@ try:
 
     entries.sort(key=lambda x: x['leaguePoints'], reverse=True)
 
-    top_50 = entries[:50]
+    target_players = entries
 
     player_data = []
 
-    print("Extracting PUUIDs...")
+    print(f"Extracting {len(target_players)} PUUIDs...")
 
-    for i, entry in enumerate(top_50):
+    for i, entry in enumerate(target_players):
         
         player_data.append({
             'puuid': entry['puuid'],
