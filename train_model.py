@@ -12,6 +12,9 @@ df = df.dropna()
 with open('champion_tags.json', 'r') as f:
     champion_tags = json.load(f)
 
+with open('champion_winrates.json', 'r') as f:
+    champion_winrates = json.load(f)
+
 ROLES = ['Fighter', 'Tank', 'Assassin', 'Mage', 'Marksman', 'Support']
 
 def build_composition_features(row):
@@ -20,18 +23,31 @@ def build_composition_features(row):
     for role in ROLES:
         features[f'blue_{role}'] = 0
         features[f'red_{role}'] = 0
+    
+    blue_team_total_wr = 0.0
+    red_team_total_wr = 0.0
 
     for i in range(5):
         champ_id = str(int(row[f"player_{i}_champ"]))
+
+        blue_team_total_wr += champion_winrates.get(champ_id, 0.50)
+
         if champ_id in champion_tags:
             for tag in champion_tags[champ_id]['tags']:
                 features[f'blue_{tag}'] += 1
     
     for i in range(5, 10):
         champ_id = str(int(row[f"player_{i}_champ"]))
+
+        red_team_total_wr += champion_winrates.get(champ_id, 0.50)
+
         if champ_id in champion_tags:
             for tag in champion_tags[champ_id]['tags']:
                 features[f'red_{tag}'] += 1
+    
+    features['blue_avg_winrate'] = blue_team_total_wr / 5.0
+    features['red_avg_winrate'] = red_team_total_wr / 5.0
+    
     return pd.Series(features)
 
 X = df.apply(build_composition_features, axis=1)
