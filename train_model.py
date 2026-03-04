@@ -1,5 +1,6 @@
 import pandas as pd
 import json
+import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import lightgbm as lgb
@@ -82,3 +83,7 @@ y_pred = [1 if prob > 0.5 else 0 for prob in y_pred_prob]
 
 accuracy = accuracy_score(y_test, y_pred)
 print(f"Test Accuracy: {accuracy * 100:.2f}%")
+
+print("\n--- Saving Model ---")
+joblib.dump(model, 'draft_model.pkl')
+print("Model saved as draft_model.pkl")
