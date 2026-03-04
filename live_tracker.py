@@ -6,6 +6,40 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LIVE_CLIENT_URL = "https://127.0.0.1:2999/liveclientdata/allgamedata"
 
+def calculate_live_win_probability(baseline_prob, blue_stats, red_stats):
+    #Takes pregame probability we predicted and adjusts based on live game economy
+    #blue_stats and red_stats are dicts with keys like 'kills', 'dragons', 'barons', 'cs', etc.
+    #I am approximating gold for each stat
+
+    blue_gold = (
+        (blue_stats['kills'] * 300) +
+        (blue_stats['assists'] * 150) +
+        (blue_stats['cs'] * 20) +
+        (blue_stats['dragons'] * 500) +
+        (blue_stats['barons'] * 1500)
+    )
+
+    red_gold = (
+        (red_stats['kills'] * 300) +
+        (red_stats['assists'] * 150) +
+        (red_stats['cs'] * 20) +
+        (red_stats['dragons'] * 500) +
+        (red_stats['barons'] * 1500)
+    )
+
+    gold_diff = blue_gold - red_gold
+    #Adjust baseline probability based on gold difference
+    #Every 100 gold lead shifts probability by 0.2% (1000 gold diff = 2%)
+    #"+" gold diff favors blue team, "-" gold diff favors red team
+    prob_adjustment = (gold_diff / 100) * 0.002
+    live_prob = baseline_prob + prob_adjustment
+
+    #Cap live probability between 0.1% and 99.9% 
+    live_prob = max(0.001, min(0.999, live_prob))
+
+    return live_prob, gold_diff
+
+
 def get_live_match_data():
     try:
 
@@ -24,8 +58,10 @@ def get_live_match_data():
             player_teams = {}
 
             #Initialize kill count
-            blue_team_kills = 0
-            red_team_kills = 0
+            blue_team_kills,red_team_kills = 0, 0
+            blue_team_assists, red_team_assists = 0, 0
+            blue_team_cs, red_team_cs = 0, 0
+            
 
             print("Live Player Stats:")
             for players in data['allPlayers']:
@@ -45,17 +81,20 @@ def get_live_match_data():
 
                 if team == "ORDER":
                     blue_team_kills += kills
+                    blue_team_assists += assists
+                    blue_team_cs += cs
                 elif team == "CHAOS":
                     red_team_kills += kills
+                    red_team_assists += assists
+                    red_team_cs += cs
                 
                 print (f"{raw_name} | Team: {team} | Level: {level} | Kills: {kills} | Deaths: {deaths} | Assists: {assists} | CS: {cs}")
 
 
             # Initialize dragon and baron count
-            blue_dragons = 0
-            red_dragons = 0
-            blue_barons = 0
-            red_barons = 0
+            blue_dragons, red_dragons = 0, 0
+            blue_barons, red_barons = 0, 0
+            
 
             #List of events since the game started
             events = data['events']['Events']
@@ -82,10 +121,29 @@ def get_live_match_data():
                         elif team == "CHAOS":
                             red_barons += 1
 
-            print("\n--- Live Objective Stats ---")
-            print(f"Blue Team Kills: {blue_team_kills} | Red Team Kills: {red_team_kills}")
-            print(f"Blue Team Dragons: {blue_dragons} | Red Team Dragons: {red_dragons}")
-            print(f"Blue Team Barons: {blue_barons} | Red Team Barons: {red_barons}")
+            blue_stats = {
+                'kills': blue_team_kills,
+                'assists': blue_team_assists,
+                'cs': blue_team_cs,
+                'dragons': blue_dragons,
+                'barons': blue_barons
+            }
+
+            red_stats = {
+                'kills': red_team_kills,
+                'assists': red_team_assists,
+                'cs': red_team_cs,
+                'dragons': red_dragons,
+                'barons': red_barons
+            }
+
+            baseline_prob = 0.54 #Hardcoded for now
+
+            live_prob, gold_diff = calculate_live_win_probability(baseline_prob, blue_stats, red_stats)
+
+            print("\n--- Live Prediction ---")
+            print(f"Estimated Gold Difference: {gold_diff} (Positive favors Blue, Negative favors Red)")
+            print(f"Live Win Probability for Blue Team: {live_prob*100:.1f}%")
             return True
         
         elif response.status_code == 404:
