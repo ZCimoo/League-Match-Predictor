@@ -21,14 +21,21 @@ def get_live_match_data():
 
             print(f"Game time: {minutes}:{seconds:02d}")
 
+            player_teams = {}
+
             #Initialize kill count
             blue_team_kills = 0
             red_team_kills = 0
 
             print("Live Player Stats:")
             for players in data['allPlayers']:
-                name = players['summonerName']
+                raw_name = players['summonerName']
+
+                #Strip #Tagline from name
+                clean_name = raw_name.split('#')[0].strip()
+
                 team = players['team'] #ORDER = blue team, CHAOS = red team
+                player_teams[clean_name] = team
                 level = players['level']
 
                 kills = players['scores']['kills']
@@ -41,9 +48,44 @@ def get_live_match_data():
                 elif team == "CHAOS":
                     red_team_kills += kills
                 
-                print (f"{name} | Team: {team} | Level: {level} | Kills: {kills} | Deaths: {deaths} | Assists: {assists} | CS: {cs}")
+                print (f"{raw_name} | Team: {team} | Level: {level} | Kills: {kills} | Deaths: {deaths} | Assists: {assists} | CS: {cs}")
 
+
+            # Initialize dragon and baron count
+            blue_dragons = 0
+            red_dragons = 0
+            blue_barons = 0
+            red_barons = 0
+
+            #List of events since the game started
+            events = data['events']['Events']
+
+            for event in events:
+                event_name = event['EventName']
+
+                #Check if event is a monster kill (objective)
+                if event_name in ["DragonKill", "BaronKill"]:
+                    raw_killer = event.get('KillerName','')
+
+                    clean_killer = raw_killer.split('#')[0].strip()
+
+                    team = player_teams.get(clean_killer, "Unknown")
+
+                    if event_name == "DragonKill":
+                        if team == "ORDER":
+                            blue_dragons += 1
+                        elif team == "CHAOS":
+                            red_dragons += 1
+                    elif event_name == "BaronKill":
+                        if team == "ORDER":
+                            blue_barons += 1
+                        elif team == "CHAOS":
+                            red_barons += 1
+
+            print("\n--- Live Objective Stats ---")
             print(f"Blue Team Kills: {blue_team_kills} | Red Team Kills: {red_team_kills}")
+            print(f"Blue Team Dragons: {blue_dragons} | Red Team Dragons: {red_dragons}")
+            print(f"Blue Team Barons: {blue_barons} | Red Team Barons: {red_barons}")
             return True
         
         elif response.status_code == 404:
