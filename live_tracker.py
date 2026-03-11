@@ -1,10 +1,31 @@
 import requests
 import urllib3
 import time
+import json
+import pandas as pd
+import joblib
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LIVE_CLIENT_URL = "https://127.0.0.1:2999/liveclientdata/allgamedata"
+
+print("Loading Machine Leanrning model and champion data...")
+#Load pre-trained model and champion data
+draft_model = joblib.load('draft_model.pkl')
+
+with open('champion_tags.json', 'r') as f:
+    champ_data = json.load(f)
+
+with open('champion_winrates.json', 'r') as f:
+    champ_winrates = json.load(f)
+
+#To map champ names to ids call data dragon 
+ddragon_url = "https://ddragon.leagueoflegends.com/cdn/14.4.1/data/en_US/champion.json"
+champ_mapping_data = requests.get(ddragon_url).json()['data']
+name_to_id = {}
+for champ_name, data in champ_mapping_data.items():
+    name_to_id[data['name']] = data['key']
+
 
 def calculate_live_win_probability(baseline_prob, blue_stats, red_stats):
     #Takes pregame probability we predicted and adjusts based on live game economy
@@ -39,9 +60,51 @@ def calculate_live_win_probability(baseline_prob, blue_stats, red_stats):
 
     return live_prob, gold_diff
 
+ROLES = ['Fighter', 'Tank', 'Assassin', 'Mage', 'Marksman', 'Support']
+
+def get_draft_baseline(blue_team_champs, red_team_champs):
+    features = {}
+    for role in ROLES:
+        features[f'blue_{role}'] = 0
+        features[f'red_{role}'] = 0
+
+    blue_team_total_wr = 0.0
+    red_team_total_wr = 0.0
+
+    for champ_name in blue_team_champs:
+        champ_id = name_to_id.get(champ_name, "0")
+
+        blue_team_total_wr += champ_winrates.get(champ_id, 0.50)
+
+        if champ_id in champ_data:
+            for tag in champ_data[champ_id]['tags']:
+                features[f'blue_{tag}'] += 1
+    
+    for champ_name in red_team_champs:
+        champ_id = name_to_id.get(champ_name, "0")
+
+        red_team_total_wr += champ_winrates.get(champ_id, 0.50)
+
+        if champ_id in champ_data:
+            for tag in champ_data[champ_id]['tags']:
+                features[f'red_{tag}'] += 1
+    
+    features['blue_avg_winrate'] = blue_team_total_wr / 5.0
+    features['red_avg_winrate'] = red_team_total_wr / 5.0
+
+    df_features = pd.DataFrame([features])
+
+    win_probability = draft_model.predict(df_features)[0] #Probability of blue team win
+
+    return win_probability
+
+
 
 def get_live_match_data():
     try:
+
+        blue_team_champs = []
+        red_team_champs = []
 
         response = requests.get(LIVE_CLIENT_URL, verify=False)
 
@@ -64,32 +127,40 @@ def get_live_match_data():
             
 
             print("Live Player Stats:")
-            for players in data['allPlayers']:
-                raw_name = players['summonerName']
+            for player in data['allPlayers']:
+                raw_name = player['summonerName']
 
                 #Strip #Tagline from name
                 clean_name = raw_name.split('#')[0].strip()
 
-                team = players['team'] #ORDER = blue team, CHAOS = red team
+                team = player['team'] #ORDER = blue team, CHAOS = red team
                 player_teams[clean_name] = team
-                level = players['level']
+                level = player['level']
 
-                kills = players['scores']['kills']
-                deaths = players['scores']['deaths']
-                assists = players['scores']['assists']
-                cs = players['scores']['creepScore']
+                champ_name = player['championName']
+
+                kills = player['scores']['kills']
+                deaths = player['scores']['deaths']
+                assists = player['scores']['assists']
+                cs = player['scores']['creepScore']
 
                 if team == "ORDER":
                     blue_team_kills += kills
                     blue_team_assists += assists
                     blue_team_cs += cs
+                    blue_team_champs.append(champ_name)
                 elif team == "CHAOS":
                     red_team_kills += kills
                     red_team_assists += assists
                     red_team_cs += cs
+                    red_team_champs.append(champ_name)
                 
                 print (f"{raw_name} | Team: {team} | Level: {level} | Kills: {kills} | Deaths: {deaths} | Assists: {assists} | CS: {cs}")
 
+
+            
+            print(f"\nBlue Team Champions: {blue_team_champs}")
+            print(f"Red Team Champions: {red_team_champs}")
 
             # Initialize dragon and baron count
             blue_dragons, red_dragons = 0, 0
@@ -137,7 +208,7 @@ def get_live_match_data():
                 'barons': red_barons
             }
 
-            baseline_prob = 0.54 #Hardcoded for now
+            baseline_prob = get_draft_baseline(blue_team_champs, red_team_champs)
 
             live_prob, gold_diff = calculate_live_win_probability(baseline_prob, blue_stats, red_stats)
 
